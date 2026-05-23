@@ -1,0 +1,27 @@
+{
+  "server_id": "demo_echo_stdio",
+  "name": "Demo Echo Stdio MCP Server",
+  "transport": "stdio",
+  "enabled": false,
+  "command": "python",
+  "args": ["scripts/mock_mcp_stdio_server.py"],
+  "timeout_seconds": 5,
+  "allowed_tool_scopes": ["external"],
+  "tools": [
+    {
+      "name": "echo",
+      "description": "Echo text through a local mock MCP stdio server. Enable only for local testing.",
+      "scope": "external",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "text": {"type": "string"}
+        },
+        "required": ["text"]
+      }
+    }
+  ],
+  "metadata": {
+    "note": "Disabled by default. Set enabled=true only when testing external MCP execution locally."
+  }
+}

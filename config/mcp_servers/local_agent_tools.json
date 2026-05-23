@@ -1,0 +1,80 @@
+{
+  "server_id": "local_agent_tools",
+  "name": "Local Agent Tool Catalog",
+  "transport": "internal",
+  "enabled": true,
+  "timeout_seconds": 10,
+  "allowed_tool_scopes": ["retrieval", "memory", "planning", "mission"],
+  "tools": [
+    {
+      "name": "knowledge_search",
+      "description": "Search indexed document chunks using configured retrieval strategy.",
+      "scope": "retrieval",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {"type": "string"},
+          "top_k": {"type": "integer", "minimum": 1, "maximum": 20}
+        },
+        "required": ["query"]
+      }
+    },
+    {
+      "name": "memory_read",
+      "description": "Read short-term and long-term session memory.",
+      "scope": "memory",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "session_id": {"type": "string"}
+        },
+        "required": ["session_id"]
+      }
+    },
+    {
+      "name": "drone_mission_parse",
+      "description": "Parse a natural-language drone mission request.",
+      "scope": "mission",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request": {"type": "string"}
+        },
+        "required": ["request"]
+      }
+    },
+    {
+      "name": "drone_route_plan",
+      "description": "Generate deterministic candidate drone routes from mission context.",
+      "scope": "mission",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mission": {"type": "object"},
+          "map_context": {"type": "object"},
+          "no_fly": {"type": "object"},
+          "weather": {"type": "object"}
+        },
+        "required": ["mission", "map_context", "no_fly", "weather"]
+      }
+    },
+    {
+      "name": "drone_risk_assessment",
+      "description": "Assess drone mission safety and compliance risk.",
+      "scope": "mission",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "mission": {"type": "object"},
+          "route_plan": {"type": "object"},
+          "no_fly": {"type": "object"},
+          "weather": {"type": "object"}
+        },
+        "required": ["mission", "route_plan", "no_fly", "weather"]
+      }
+    }
+  ],
+  "metadata": {
+    "note": "This is a local MCP-style catalog. Real stdio/http/sse MCP clients should be added behind the same registry boundary."
+  }
+}

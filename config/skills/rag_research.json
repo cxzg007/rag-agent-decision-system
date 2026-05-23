@@ -1,0 +1,17 @@
+{
+  "skill_id": "rag_research",
+  "name": "RAG Research Agent",
+  "version": "0.1.0",
+  "description": "Answer document-grounded questions using retrieval, parent context expansion, critic reflection, and cited answer generation.",
+  "workflow_id": "rag_multi_agent_v1",
+  "default_inputs": {
+    "top_k": 5,
+    "use_llm_planner": false,
+    "use_llm_critic": false,
+    "use_llm_answer": false
+  },
+  "allowed_tool_scopes": ["retrieval", "memory", "planning"],
+  "mcp_servers": ["local_agent_tools"],
+  "tags": ["rag", "multi-agent", "interview"],
+  "enabled": true
+}

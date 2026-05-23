@@ -1,0 +1,19 @@
+{
+  "skill_id": "drone_mission_planner",
+  "name": "无人机任务规划",
+  "version": "0.1.0",
+  "description": "将自然语言无人机作业需求转化为可人工审批的任务计划，包含任务解析、地图上下文、禁飞区检查、天气约束、航线规划和风险评估。",
+  "skill_path": "skills/drone-mission-planner",
+  "instructions_path": "skills/drone-mission-planner/SKILL.md",
+  "workflow_id": "drone_mission_planning_v1",
+  "default_inputs": {
+    "top_k": 5,
+    "use_llm_planner": false,
+    "use_llm_critic": false,
+    "use_llm_answer": false
+  },
+  "allowed_tool_scopes": ["mission"],
+  "mcp_servers": ["local_agent_tools"],
+  "tags": ["drone", "mission-planning", "workflow", "tool"],
+  "enabled": true
+}

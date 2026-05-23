@@ -1,0 +1,16 @@
+{"question":"What does HTTP status code 404 mean?","gold_chunk_ids":["rfc9110-http-semantics_c0812"],"answer_keywords":["404","Not Found","origin server"]}
+{"question":"Which HTTP responses are heuristically cacheable?","gold_chunk_ids":["rfc9110-http-semantics_c0749"],"answer_keywords":["heuristically cacheable","404","cache"]}
+{"question":"How does TLS 1.3 discuss replay protection for 0-RTT data?","gold_chunk_ids":["rfc8446-tls13_c0273","rfc8446-tls13_c0406"],"answer_keywords":["0-RTT","replay","TLS"]}
+{"question":"What is the QUIC transport protocol?","gold_chunk_ids":["rfc9000-quic_c0000"],"answer_keywords":["QUIC","transport","UDP"]}
+{"question":"How can TLS 1.3 PSKs provide forward secrecy?","gold_chunk_ids":["rfc8446-tls13_c0038"],"answer_keywords":["PSK","DHE","forward secrecy"]}
+{"question":"What is the TLS 1.3 KeyUpdate handshake message used for?","gold_chunk_ids":["rfc8446-tls13_c0210","rfc8446-tls13_c0212"],"answer_keywords":["KeyUpdate","cryptographic keys","update_requested"]}
+{"question":"Which cipher suite must a TLS-compliant application implement?","gold_chunk_ids":["rfc8446-tls13_c0290"],"answer_keywords":["TLS_AES_128_GCM_SHA256","MUST implement","cipher suite"]}
+{"question":"How does QUIC use connection IDs for migration?","gold_chunk_ids":["rfc9000-quic_c0356"],"answer_keywords":["connection ID","endpoint addresses","migration"]}
+{"question":"What abstraction do QUIC streams provide to applications?","gold_chunk_ids":["rfc9000-quic_c0209"],"answer_keywords":["Streams","ordered byte-stream","unidirectional"]}
+{"question":"How does QUIC perform path validation?","gold_chunk_ids":["rfc9000-quic_c0344","rfc9000-quic_c0348","rfc9000-quic_c0349","rfc9000-quic_c0354"],"answer_keywords":["PATH_CHALLENGE","path validation","reachability"]}
+{"question":"When does a QUIC connection idle timeout occur?","gold_chunk_ids":["rfc9000-quic_c0389","rfc9000-quic_c0392","rfc9000-quic_c0393"],"answer_keywords":["max_idle_timeout","idle","silently closed"]}
+{"question":"What does the HTTP GET method request?","gold_chunk_ids":["rfc9110-http-semantics_c0543"],"answer_keywords":["GET","current selected representation","target resource"]}
+{"question":"What does the HTTP PUT method request?","gold_chunk_ids":["rfc9110-http-semantics_c0554"],"answer_keywords":["PUT","created or replaced","representation"]}
+{"question":"What does the HTTP Content-Type header field indicate?","gold_chunk_ids":["rfc9110-http-semantics_c0473"],"answer_keywords":["Content-Type","media type","representation"]}
+{"question":"How are weak and strong validators different in HTTP?","gold_chunk_ids":["rfc9110-http-semantics_c0504"],"answer_keywords":["Weak validators","Strong validators","comparisons"]}
+{"question":"What is the purpose of QUIC immediate close?","gold_chunk_ids":["rfc9000-quic_c0394","rfc9000-quic_c0395"],"answer_keywords":["CONNECTION_CLOSE","terminate","draining"]}

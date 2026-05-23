@@ -1,0 +1,47 @@
+{
+  "workflow_id": "drone_mission_planning_v1",
+  "max_iterations": 1,
+  "nodes": [
+    {
+      "node_id": "mission_parse",
+      "node_type": "tool",
+      "agent_type": "mission_parser",
+      "timeout_seconds": 5,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_context",
+      "node_type": "tool_group",
+      "agent_type": "geo_safety_context",
+      "timeout_seconds": 15,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_route_plan",
+      "node_type": "tool",
+      "agent_type": "route_planner",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_risk_review",
+      "node_type": "tool",
+      "agent_type": "safety_reviewer",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_export",
+      "node_type": "tool",
+      "agent_type": "mission_exporter",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    }
+  ],
+  "edges": [
+    {"from_node": "mission_parse", "to_node": "mission_context"},
+    {"from_node": "mission_context", "to_node": "mission_route_plan"},
+    {"from_node": "mission_route_plan", "to_node": "mission_risk_review"},
+    {"from_node": "mission_risk_review", "to_node": "mission_export"}
+  ]
+}

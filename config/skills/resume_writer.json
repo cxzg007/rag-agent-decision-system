@@ -1,0 +1,18 @@
+{
+  "skill_id": "resume_writer",
+  "name": "Resume Writer",
+  "version": "0.1.0",
+  "description": "Generate tailored resume project experience content for this Agent/RAG/MCP project using a Codex-style SKILL.md and bundled resume writing references.",
+  "skill_path": "skills/resume-writer",
+  "instructions_path": "skills/resume-writer/SKILL.md",
+  "workflow_id": "rag_multi_agent_v1",
+  "default_inputs": {
+    "project_name": "智能知识检索与问答系统",
+    "output_language": "zh-CN",
+    "include_interview_questions": true
+  },
+  "allowed_tool_scopes": ["retrieval", "memory", "planning"],
+  "mcp_servers": ["local_agent_tools"],
+  "tags": ["resume", "skill", "interview", "agent"],
+  "enabled": true
+}

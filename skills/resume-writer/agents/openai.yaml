@@ -1,0 +1,7 @@
+interface:
+  display_name: "Resume Writer"
+  short_description: "Draft tailored resume project experience"
+  default_prompt: "Use $resume-writer to turn this Agent/RAG/MCP project into a polished resume project experience."
+
+policy:
+  allow_implicit_invocation: true

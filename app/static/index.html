@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RAG Agent 控制台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>RAG Agent 控制台</h1>
+        <p id="envLine">API / 工作流 / Trace / 评测</p>
+      </div>
+      <div class="authbar">
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" autocomplete="off" />
+        <button id="saveKey" type="button">保存</button>
+      </div>
+    </header>
+
+    <nav class="tabs" aria-label="控制台模块">
+      <button class="tab active" data-tab="overview" type="button">总览</button>
+      <button class="tab" data-tab="skills" type="button">技能</button>
+      <button class="tab" data-tab="workflow" type="button">工作流</button>
+      <button class="tab" data-tab="traces" type="button">Trace</button>
+      <button class="tab" data-tab="eval" type="button">评测</button>
+      <button class="tab" data-tab="registry" type="button">注册表</button>
+    </nav>
+
+    <main>
+      <section id="overview" class="panel active">
+        <div class="toolbar">
+          <h2>系统状态</h2>
+          <button id="refreshHealth" type="button">刷新</button>
+        </div>
+        <div id="healthGrid" class="metric-grid"></div>
+      </section>
+
+      <section id="skills" class="panel">
+        <div class="toolbar">
+          <h2>技能执行</h2>
+          <button id="loadSkills" type="button">刷新</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            技能
+            <select id="skillSelect"></select>
+          </label>
+          <label>
+            会话
+            <input id="skillSession" value="console" />
+          </label>
+          <label>
+            Top K
+            <input id="skillTopK" type="number" min="1" max="20" value="5" />
+          </label>
+        </div>
+        <textarea id="skillQuestion" rows="4">什么是 QUIC？</textarea>
+        <div class="toolbar compact">
+          <button id="runSkill" type="button">执行技能</button>
+          <button id="streamSkill" type="button">流式执行</button>
+        </div>
+        <pre id="skillOutput" class="output"></pre>
+      </section>
+
+      <section id="workflow" class="panel">
+        <div class="toolbar">
+          <h2>工作流执行</h2>
+          <button id="loadWorkflows" type="button">刷新</button>
+        </div>
+        <div class="form-grid">
+          <label>
+            工作流
+            <select id="workflowSelect"></select>
+          </label>
+          <label>
+            会话
+            <input id="workflowSession" value="console" />
+          </label>
+          <label>
+            Top K
+            <input id="workflowTopK" type="number" min="1" max="20" value="5" />
+          </label>
+        </div>
+        <div class="switch-row">
+          <label><input id="llmPlanner" type="checkbox" /> LLM Planner</label>
+          <label><input id="llmCritic" type="checkbox" /> LLM Critic</label>
+          <label><input id="llmAnswer" type="checkbox" /> LLM Answer</label>
+        </div>
+        <textarea id="workflowQuestion" rows="4">解释 TLS 1.3 的 KeyUpdate 机制。</textarea>
+        <div class="toolbar compact">
+          <button id="runWorkflow" type="button">执行工作流</button>
+          <button id="streamWorkflow" type="button">流式执行</button>
+        </div>
+        <pre id="workflowOutput" class="output"></pre>
+      </section>
+
+      <section id="traces" class="panel">
+        <div class="toolbar">
+          <h2>Trace 查询</h2>
+          <button id="loadTraces" type="button">刷新</button>
+        </div>
+        <div class="split">
+          <div id="traceList" class="list"></div>
+          <pre id="traceDetail" class="output"></pre>
+        </div>
+      </section>
+
+      <section id="eval" class="panel">
+        <div class="toolbar">
+          <h2>评测与数据集</h2>
+          <div class="button-row">
+            <button id="loadEvalDataset" type="button">加载数据集</button>
+            <button id="runEval" type="button">运行评测</button>
+          </div>
+        </div>
+        <div class="form-grid">
+          <label>
+            评测集
+            <select id="evalDataset">
+              <option value="default">默认集</option>
+              <option value="large">大评测集</option>
+            </select>
+          </label>
+          <label>
+            展示样本数
+            <input id="evalSampleSize" type="number" min="1" max="50" value="12" />
+          </label>
+          <label>
+            Agent 评测
+            <select id="evalAgentMode">
+              <option value="true">包含</option>
+              <option value="false">跳过</option>
+            </select>
+          </label>
+        </div>
+        <div id="evalSummary" class="summary-grid"></div>
+        <div class="viz-grid">
+          <div>
+            <h3>来源文档分布</h3>
+            <div id="sourceDocChart" class="bar-chart"></div>
+          </div>
+          <div>
+            <h3>Gold Chunk 数量分布</h3>
+            <div id="goldCountChart" class="bar-chart"></div>
+          </div>
+          <div>
+            <h3>答案关键词数量分布</h3>
+            <div id="keywordCountChart" class="bar-chart"></div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>问题</th>
+                <th>来源</th>
+                <th>Gold Chunks</th>
+                <th>关键词</th>
+              </tr>
+            </thead>
+            <tbody id="evalCases"></tbody>
+          </table>
+        </div>
+        <div id="evalMetricCards" class="metric-grid eval-metrics"></div>
+        <div id="evalCharts" class="result-charts"></div>
+        <div id="agentCharts" class="result-charts"></div>
+        <pre id="evalOutput" class="output"></pre>
+      </section>
+
+      <section id="registry" class="panel">
+        <div class="toolbar">
+          <h2>注册表</h2>
+          <button id="refreshRegistry" type="button">刷新</button>
+        </div>
+        <div class="split three">
+          <pre id="skillsRegistry" class="output"></pre>
+          <pre id="mcpRegistry" class="output"></pre>
+          <pre id="workflowRegistry" class="output"></pre>
+        </div>
+      </section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,56 @@
+{
+  "workflow_id": "rag_multi_agent_v1",
+  "max_iterations": 2,
+  "nodes": [
+    {
+      "node_id": "router",
+      "node_type": "agent",
+      "agent_type": "router",
+      "timeout_seconds": 5,
+      "retry_count": 0,
+      "config": {
+        "parallel_policy": {
+          "max_concurrency": 2,
+          "failure_strategy": "continue_on_error",
+          "min_success": 1
+        }
+      }
+    },
+    {"node_id": "memory", "node_type": "agent", "agent_type": "memory", "timeout_seconds": 5, "retry_count": 0},
+    {"node_id": "plan", "node_type": "agent", "agent_type": "planner", "timeout_seconds": 10, "retry_count": 0},
+    {"node_id": "retrieval_original", "node_type": "agent", "agent_type": "retriever", "timeout_seconds": 120, "retry_count": 0},
+    {"node_id": "retrieval_rewritten", "node_type": "agent", "agent_type": "retriever", "timeout_seconds": 120, "retry_count": 0},
+    {
+      "node_id": "merge_evidence",
+      "node_type": "merge",
+      "agent_type": null,
+      "timeout_seconds": 10,
+      "retry_count": 0,
+      "config": {
+        "source_nodes": ["retrieval_original", "retrieval_rewritten"],
+        "top_k_source": "request",
+        "dedupe_key": "chunk_id",
+        "score_weights": {
+          "retrieval_original": 1.0,
+          "retrieval_rewritten": 1.0
+        }
+      }
+    },
+    {"node_id": "critic", "node_type": "agent", "agent_type": "critic", "timeout_seconds": 5, "retry_count": 0},
+    {"node_id": "answer", "node_type": "agent", "agent_type": "answerer", "timeout_seconds": 10, "retry_count": 0}
+  ],
+  "edges": [
+    {"from_node": "router", "to_node": "memory", "condition": "task_type == 'memory_query'"},
+    {"from_node": "router", "to_node": "plan", "condition": "task_type == 'plan_generation'"},
+    {"from_node": "router", "to_node": "retrieval_original", "condition": "task_type in ['document_qa', 'procedure_query', 'compare', 'out_of_scope']"},
+    {"from_node": "router", "to_node": "retrieval_rewritten", "condition": "task_type in ['document_qa', 'procedure_query', 'compare', 'out_of_scope']"},
+    {"from_node": "retrieval_original", "to_node": "merge_evidence"},
+    {"from_node": "retrieval_rewritten", "to_node": "merge_evidence"},
+    {"from_node": "merge_evidence", "to_node": "critic"},
+    {"from_node": "memory", "to_node": "critic"},
+    {"from_node": "plan", "to_node": "critic"},
+    {"from_node": "critic", "to_node": "answer", "condition": "passed == true or max_iterations_reached == true"},
+    {"from_node": "critic", "to_node": "retrieval_original", "condition": "passed == false and max_iterations_reached == false"},
+    {"from_node": "critic", "to_node": "retrieval_rewritten", "condition": "passed == false and max_iterations_reached == false"}
+  ]
+}
