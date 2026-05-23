@@ -122,7 +122,7 @@ class WorkflowRuntime:
         current_node = definition.nodes[0].node_id
         while True:
             await self._run_node(definition, state, current_node, emit=emit)
-            if current_node == "answer":
+            if current_node in {"answer", "direct_answer", "deterministic_tool", "mission_export"}:
                 break
             next_nodes = self._next_nodes(definition, state, current_node)
             if not next_nodes:
@@ -324,6 +324,12 @@ class WorkflowRuntime:
     def _node_input(self, state: WorkflowState, node_id: str) -> dict:
         if node_id == "router":
             return {"question": state.agent_state.question, "session_id": state.agent_state.session_id}
+        if node_id == "supervisor_router":
+            return {"question": state.agent_state.question, "session_id": state.agent_state.session_id}
+        if node_id == "direct_answer":
+            return {"question": state.agent_state.question, "route": state.variables.get("route")}
+        if node_id == "deterministic_tool":
+            return {"question": state.agent_state.question, "route": state.variables.get("route")}
         if node_id == "memory":
             return {"session_id": state.agent_state.session_id}
         if node_id == "plan":

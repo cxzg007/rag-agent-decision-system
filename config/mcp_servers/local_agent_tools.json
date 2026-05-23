@@ -44,6 +44,21 @@
       }
     },
     {
+      "name": "link_budget_estimator",
+      "description": "Estimate wireless link budget using a deterministic free-space path loss model.",
+      "scope": "mission",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "request": {"type": "string"},
+          "frequency_mhz": {"type": "number"},
+          "distance_km": {"type": "number"},
+          "tx_power_dbm": {"type": "number"}
+        },
+        "required": ["request"]
+      }
+    },
+    {
       "name": "drone_route_plan",
       "description": "Generate deterministic candidate drone routes from mission context.",
       "scope": "mission",

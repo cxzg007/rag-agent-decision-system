@@ -4,6 +4,231 @@
 
 后续开发约定：每完成一个重要功能，都同步记录实现过程中遇到的关键问题、处理方式和面试可讲点，避免只留下代码而丢失工程决策过程。
 
+## 2026-05-23：将 Multi-Agent 修正为 Supervisor 路由驱动 Workflow
+
+### 背景
+
+原先的表达容易让人理解成“所有任务都会走完整 Multi-Agent 流程”。这在工程上并不合理：简单概念解释、规范查询、链路预算和复杂无人机任务规划的复杂度不同，不应该共享同一条重型链路。
+
+### 处理
+
+本次把系统修正为 Router-driven Workflow Graph：
+
+```text
+agent_supervisor
+  -> supervisor_router
+  -> direct_answer / RAG Skill / deterministic_tool / mission_planning
+```
+
+关键改动：
+
+- 新增 `config/workflows/supervisor_workflow_v1.json`
+- 新增 `config/skills/agent_supervisor.json`
+- 将 `drone_mission_planner` Skill 接入 `supervisor_workflow_v1`
+- 新增 `link_budget_estimator` 确定性工具，用于链路预算和覆盖估计类任务
+- `WorkflowRuntime` 支持 `direct_answer`、`deterministic_tool`、`mission_export` 作为终止节点
+- `smoke_api.py` 增加 Direct Answer、Deterministic Tool、Mission Planning 三条路径验证
+
+### 重要问题 1：冒烟测试仍断言旧 workflow_id
+
+现象：
+
+```text
+drone smoke used unexpected workflow_id
+```
+
+原因：
+
+无人机 Skill 已经改为接入 `supervisor_workflow_v1`，但 `scripts/smoke_api.py` 仍然断言旧的 `drone_mission_planning_v1`。这属于测试契约没有跟随架构演进更新。
+
+解决：
+
+更新 smoke 测试，断言：
+
+```text
+workflow_id == supervisor_workflow_v1
+node_runs[0] == supervisor_router
+node_runs[-1] == mission_export
+```
+
+同时增加 `agent_supervisor` 的 direct/tool 路径测试，避免只测无人机分支。
+
+面试可讲点：
+
+架构升级不能只改代码，还要同步更新契约测试。否则测试会把正确的新行为误报成失败。
+
+### 重要问题 2：PowerShell 中文 here-string 导致路由误判
+
+现象：
+
+本地用 PowerShell here-string 直接写中文问题做临时测试时，请求内容变成了 `????`，导致 Supervisor 无法识别“无人机”“链路预算”等关键词，最终全部落到默认 RAG 分支。
+
+原因：
+
+这不是路由逻辑错误，而是终端编码和脚本输入方式导致中文在传入 Python 前已经丢失。
+
+解决：
+
+临时测试脚本统一使用 Unicode escape 构造中文字符串，例如：
+
+```python
+"\u65e0\u4eba\u673a"
+```
+
+正式 smoke 测试也使用 Unicode escape，保证在 Windows PowerShell 和 CI 环境中都稳定。
+
+面试可讲点：
+
+中文项目的测试要注意编码稳定性。遇到“模型或路由不识别中文”时，先确认输入在进程内是否仍然是正确 Unicode，而不是直接怀疑业务逻辑。
+
+### 重要问题 3：RAG 分支出现 ES 瞬时异常但整体恢复
+
+现象：
+
+临时验证 RAG 路径时，Elasticsearch 查询曾出现一次 `status:N/A` 的瞬时异常，节点重试后请求成功返回。
+
+原因：
+
+本地 ES 和 embedding/rerank 模型存在冷启动、连接复用和服务准备时间问题。短时间内触发并发检索时，偶发连接层异常是可预期的。
+
+解决：
+
+当前 Workflow 节点保留 timeout、retry 和节点级失败记录。RAG 分支在重试后成功，trace 中可以看到节点状态和耗时。
+
+面试可讲点：
+
+Agent 系统依赖外部服务，不能假设每个工具调用都稳定。节点级 retry、timeout、trace 和降级策略是生产化 Agent 的关键能力。
+
+### 当前验证结论
+
+使用 Unicode 稳定输入后，四类路径均已验证：
+
+```text
+简单解释     -> supervisor_router -> direct_answer
+链路预算     -> supervisor_router -> deterministic_tool -> link_budget_estimator
+规范查询     -> supervisor_router -> retrieval_original/retrieval_rewritten -> merge -> critic -> answer
+无人机规划   -> supervisor_router -> mission_parse -> mission_context -> mission_route_plan -> mission_risk_review -> mission_export
+```
+
+本次最终验证命令：
+
+```powershell
+python -m compileall app scripts
+python scripts/preflight.py
+python scripts/smoke_api.py --strict-ready
+```
+
+验证结果：
+
+```text
+compileall passed
+preflight passed: skills=4 mcp_servers=2 workflows=3 health=ok
+smoke passed: direct/tool/mission paths all returned 200
+RAG supervisor path returned 200 and executed knowledge_search + parent_context
+```
+
+### 重要问题 4：模型冷启动会拉长首次 RAG 验证耗时
+
+现象：
+
+RAG 路由验证第一次运行时出现较多 HuggingFace `HEAD/GET` 日志和未鉴权 warning，整体请求耗时约 22 秒。
+
+原因：
+
+本地首次加载 embedding 模型和 rerank 模型时，会检查 HuggingFace Hub 元数据并加载权重。模型缓存后后续请求会明显更快。这个现象不是路由错误，而是模型冷启动成本。
+
+解决：
+
+当前 smoke 测试默认不把完整 RAG 路径作为强制项，避免每次快速健康检查都被模型冷启动拖慢；完整 RAG 路径通过单独验证脚本确认。
+
+面试可讲点：
+
+RAG 系统的“功能正确”和“启动性能”要分开验证。生产环境可以通过模型预热、本地模型缓存、镜像内置权重或独立 embedding/rerank 服务降低冷启动影响。
+
+### 重要处理 5：确定性工具要解析业务参数，而不是只依赖默认值
+
+现象：
+
+链路预算工具最初能解析频率、距离和发射功率，但接收灵敏度主要依赖默认值。测试样例里默认值刚好等于用户输入的 `-90dBm`，因此结果看起来正确，但工程上不够严谨。
+
+处理：
+
+为 `link_budget_estimator` 增加 label-aware 参数解析：
+
+```text
+发射功率 20dBm
+接收灵敏度 -90dBm
+```
+
+解析时优先匹配带业务标签的数值，再回退到通用单位匹配。
+
+面试可讲点：
+
+确定性工具的价值在于可解释和可复现，所以不能只靠默认参数“碰巧正确”。面试中可以强调：Tool 层需要明确输入 schema、参数解析、默认值、假设说明和输出审计字段。
+
+### 重要问题 6：通用单位回退会把发射功率误当成接收灵敏度
+
+现象：
+
+为链路预算工具增加接收灵敏度解析后，临时验证发现一个边界问题：
+
+```text
+发射功率 20dBm，接收灵敏度 -85dBm
+```
+
+如果中文 label 因编码或格式原因没有命中，接收灵敏度解析会回退到“第一个 dBm 数值”，错误地取到 `20dBm`，导致链路余量计算严重失真。
+
+解决：
+
+将 `_extract_labeled_number` 增加 `fallback_to_unit` 参数：
+
+- 发射功率允许回退到第一个 `dBm`
+- 接收灵敏度不允许通用回退，label 未命中时使用 schema 默认值
+
+并用 Unicode escape 构造中文验证样例，确认：
+
+```text
+receiver_sensitivity=-85.0 dBm
+link_margin_db=-8.02
+```
+
+面试可讲点：
+
+工具参数解析不能只看“有没有数值”，还要看数值语义是否匹配。对于同单位的多个参数，label-aware parsing 和安全默认值比盲目正则更可靠。
+
+### 重要问题 7：GitHub HTTPS 推送被连接重置
+
+现象：
+
+提交后执行：
+
+```powershell
+git push origin main
+```
+
+出现：
+
+```text
+fatal: unable to access 'https://github.com/cxzg007/rag-agent-decision-system.git/': Recv failure: Connection was reset
+```
+
+原因：
+
+这是网络传输层错误，说明 HTTPS 连接在接收过程中被重置。它通常和本地网络、代理、TLS 连接或 GitHub 短暂连接状态有关，不代表提交内容或仓库权限一定有问题。
+
+解决：
+
+先确认本地 commit 已经创建成功，再记录错误，然后重试 `git push origin main`。如果持续失败，再检查：
+
+- `gh auth status`
+- GitHub token 权限
+- 网络代理或 VPN
+- 是否需要改用 SSH remote
+
+面试可讲点：
+
+发布链路也需要可诊断性。遇到 push 失败时，要先区分“代码/权限问题”和“网络传输问题”，避免误回滚已经验证通过的代码。
+
 ## 0. 为什么本地经常出现 Docker / PostgreSQL 不可用
 
 ### 现象

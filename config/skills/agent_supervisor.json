@@ -1,0 +1,17 @@
+{
+  "skill_id": "agent_supervisor",
+  "name": "Agent Supervisor",
+  "version": "0.1.0",
+  "description": "Router-driven Workflow Graph 统一入口，根据任务类型和复杂度路由到 Direct Answer、RAG Skill、确定性 Tool 或 Mission Planning Workflow。",
+  "workflow_id": "supervisor_workflow_v1",
+  "default_inputs": {
+    "top_k": 5,
+    "use_llm_planner": false,
+    "use_llm_critic": false,
+    "use_llm_answer": false
+  },
+  "allowed_tool_scopes": ["retrieval", "memory", "planning", "mission"],
+  "mcp_servers": ["local_agent_tools"],
+  "tags": ["supervisor", "router", "workflow", "agent", "rag", "tool"],
+  "enabled": true
+}

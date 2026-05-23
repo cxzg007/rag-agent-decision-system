@@ -15,8 +15,10 @@ drone_mission_planner
 Workflow:
 
 ```text
-drone_mission_planning_v1
+supervisor_workflow_v1
 ```
+
+说明：`drone_mission_planner` 当前通过 Supervisor 路由进入无人机任务规划分支。旧的 `drone_mission_planning_v1` 仍可作为独立工作流配置保留，但默认业务入口已经切换到 `supervisor_workflow_v1`，便于和 Direct Answer、RAG Skill、Deterministic Tool 共用统一路由入口。
 
 示例请求：
 

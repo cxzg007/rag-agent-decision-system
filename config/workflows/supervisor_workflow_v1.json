@@ -1,0 +1,123 @@
+{
+  "workflow_id": "supervisor_workflow_v1",
+  "max_iterations": 2,
+  "nodes": [
+    {
+      "node_id": "supervisor_router",
+      "node_type": "router",
+      "agent_type": "supervisor",
+      "timeout_seconds": 5,
+      "retry_count": 0
+    },
+    {
+      "node_id": "direct_answer",
+      "node_type": "answer",
+      "agent_type": "direct_answer",
+      "timeout_seconds": 5,
+      "retry_count": 0
+    },
+    {
+      "node_id": "deterministic_tool",
+      "node_type": "tool",
+      "agent_type": "calculation_tool",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    },
+    {
+      "node_id": "retrieval_original",
+      "node_type": "agent",
+      "agent_type": "retriever",
+      "timeout_seconds": 120,
+      "retry_count": 0
+    },
+    {
+      "node_id": "retrieval_rewritten",
+      "node_type": "agent",
+      "agent_type": "retriever",
+      "timeout_seconds": 120,
+      "retry_count": 0
+    },
+    {
+      "node_id": "merge_evidence",
+      "node_type": "merge",
+      "agent_type": null,
+      "timeout_seconds": 10,
+      "retry_count": 0,
+      "config": {
+        "source_nodes": ["retrieval_original", "retrieval_rewritten"],
+        "top_k_source": "request",
+        "dedupe_key": "chunk_id",
+        "score_weights": {
+          "retrieval_original": 1.0,
+          "retrieval_rewritten": 1.0
+        }
+      }
+    },
+    {
+      "node_id": "critic",
+      "node_type": "agent",
+      "agent_type": "critic",
+      "timeout_seconds": 5,
+      "retry_count": 0
+    },
+    {
+      "node_id": "answer",
+      "node_type": "agent",
+      "agent_type": "answerer",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_parse",
+      "node_type": "tool",
+      "agent_type": "mission_parser",
+      "timeout_seconds": 5,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_context",
+      "node_type": "tool_group",
+      "agent_type": "geo_safety_context",
+      "timeout_seconds": 15,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_route_plan",
+      "node_type": "tool",
+      "agent_type": "route_planner",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_risk_review",
+      "node_type": "tool",
+      "agent_type": "safety_reviewer",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    },
+    {
+      "node_id": "mission_export",
+      "node_type": "tool",
+      "agent_type": "mission_exporter",
+      "timeout_seconds": 10,
+      "retry_count": 0
+    }
+  ],
+  "edges": [
+    {"from_node": "supervisor_router", "to_node": "direct_answer", "condition": "route == 'direct_answer'"},
+    {"from_node": "supervisor_router", "to_node": "deterministic_tool", "condition": "route == 'deterministic_tool'"},
+    {"from_node": "supervisor_router", "to_node": "retrieval_original", "condition": "route == 'rag_skill'"},
+    {"from_node": "supervisor_router", "to_node": "retrieval_rewritten", "condition": "route == 'rag_skill'"},
+    {"from_node": "supervisor_router", "to_node": "mission_parse", "condition": "route == 'mission_planning'"},
+    {"from_node": "retrieval_original", "to_node": "merge_evidence"},
+    {"from_node": "retrieval_rewritten", "to_node": "merge_evidence"},
+    {"from_node": "merge_evidence", "to_node": "critic"},
+    {"from_node": "critic", "to_node": "answer", "condition": "passed == true or max_iterations_reached == true"},
+    {"from_node": "critic", "to_node": "retrieval_original", "condition": "passed == false and max_iterations_reached == false"},
+    {"from_node": "critic", "to_node": "retrieval_rewritten", "condition": "passed == false and max_iterations_reached == false"},
+    {"from_node": "mission_parse", "to_node": "mission_context"},
+    {"from_node": "mission_context", "to_node": "mission_route_plan"},
+    {"from_node": "mission_route_plan", "to_node": "mission_risk_review"},
+    {"from_node": "mission_risk_review", "to_node": "mission_export"}
+  ]
+}

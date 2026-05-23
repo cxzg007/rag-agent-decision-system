@@ -13,6 +13,58 @@ from app.services.workflow.state import WorkflowState
 
 
 class WorkflowNodes:
+    async def supervisor_router(self, state: WorkflowState) -> dict[str, Any]:
+        question = state.agent_state.question
+        route = self._supervisor_route(question)
+        state.agent_state.task_type = route["task_type"]
+        state.variables["task_type"] = route["task_type"]
+        state.variables["route"] = route["route"]
+        state.variables["complexity"] = route["complexity"]
+        return {
+            "mode": "deterministic",
+            **route,
+            "reason": route["reason"],
+        }
+
+    async def direct_answer(self, state: WorkflowState) -> dict[str, Any]:
+        question = state.agent_state.question
+        answer = (
+            f"这是一个低复杂度问题，系统选择 Direct Answer 路径直接回答。\n\n"
+            f"问题：{question}\n\n"
+            "当前 deterministic MVP 不调用 LLM，因此只给出路由说明："
+            "如果需要事实性、规范性或需要引用依据的回答，请进入 RAG Skill；"
+            "如果需要数值计算，请进入确定性 Tool；如果是复杂无人机任务，请进入 Mission Planner。"
+        )
+        state.agent_state.final_answer = answer
+        return {"route": "direct_answer", "answer": answer}
+
+    async def deterministic_tool(self, state: WorkflowState) -> dict[str, Any]:
+        output = await self._execute_workflow_tool(
+            state,
+            step_id="link_budget_estimator",
+            objective="Estimate link budget using a deterministic formula tool.",
+            tool_name="link_budget_estimator",
+            arguments={"request": state.agent_state.question},
+        )
+        answer = "\n".join(
+            [
+                "# 链路预算估算",
+                "",
+                f"- 频率: {output['frequency_mhz']} MHz",
+                f"- 距离: {output['distance_km']} km",
+                f"- 自由空间路径损耗: {output['free_space_path_loss_db']} dB",
+                f"- 接收功率: {output['received_power_dbm']} dBm",
+                f"- 链路余量: {output['link_margin_db']} dB",
+                f"- 质量判断: {output['quality']}",
+                "",
+                "## 假设",
+                *[f"- {item}" for item in output["assumptions"]],
+            ]
+        )
+        state.agent_state.task_type = "deterministic_calculation"
+        state.agent_state.final_answer = answer
+        return {"route": "deterministic_tool", "tool_output": output, "answer": answer}
+
     async def router(self, state: WorkflowState) -> dict[str, Any]:
         agent_state = state.agent_state
         if state.variables.get("use_llm_planner"):
@@ -283,6 +335,45 @@ class WorkflowNodes:
         if task_type == "out_of_scope":
             return "rag"
         return "rag"
+
+    def _supervisor_route(self, question: str) -> dict[str, Any]:
+        lower = question.lower()
+        if any(term in question for term in ["无人机", "航线", "巡检", "禁飞", "杆塔", "异物"]):
+            return {
+                "route": "mission_planning",
+                "task_type": "drone_mission_planning",
+                "complexity": "high",
+                "reason": "contains drone mission planning terms",
+            }
+        if any(term in lower for term in ["link budget", "coverage", "fspl"]) or any(
+            term in question for term in ["链路预算", "覆盖估计", "路径损耗", "接收功率"]
+        ):
+            return {
+                "route": "deterministic_tool",
+                "task_type": "deterministic_calculation",
+                "complexity": "medium",
+                "reason": "contains deterministic calculation terms",
+            }
+        if any(term in question for term in ["RFC", "规范", "手册", "文档", "TLS", "QUIC", "HTTP", "引用", "依据"]):
+            return {
+                "route": "rag_skill",
+                "task_type": "document_qa",
+                "complexity": "medium",
+                "reason": "requires document-grounded answer",
+            }
+        if len(question) <= 80 and any(term in question for term in ["是什么", "解释", "概念", "区别"]):
+            return {
+                "route": "direct_answer",
+                "task_type": "simple_explanation",
+                "complexity": "low",
+                "reason": "short low-complexity explanation request",
+            }
+        return {
+            "route": "rag_skill",
+            "task_type": "document_qa",
+            "complexity": "medium",
+            "reason": "default to retrieval-grounded answer",
+        }
 
     def _score(self, citation: Citation) -> float:
         return citation.score if citation.score is not None else 0.0

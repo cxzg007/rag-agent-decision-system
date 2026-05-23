@@ -1,5 +1,18 @@
 # Agent 架构设计
 
+## 0. 当前设计更新：Supervisor 路由驱动
+
+当前项目已经从“所有任务都进入完整 Multi-Agent 流程”修正为 Router-driven Workflow Graph。
+
+统一入口 `agent_supervisor` 会先判断任务类型和复杂度：
+
+- 简单概念解释：进入 `direct_answer`
+- 手册、规范、RFC 查询：进入 RAG Skill 分支
+- 链路预算、覆盖估计、路径损耗：进入确定性工具分支
+- 复杂无人机任务规划：进入 Mission Planner / Tool Executor / Constraint Verifier 闭环
+
+这样保留了 Workflow Graph 的可观测性、trace 和扩展性，同时避免低复杂度任务被过度编排。详细设计见 `docs/supervisor_workflow_design.md`。
+
 ## 1. 目标
 
 当前版本实现的是一个不依赖 LLM 的 deterministic Agent。它的目标不是生成最自然的回答，而是把 Agent 项目的核心工程链路跑通：

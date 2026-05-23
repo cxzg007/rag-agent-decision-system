@@ -5,6 +5,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from app.tools.knowledge_search import KnowledgeSearchInput, knowledge_search
+from app.tools.link_budget import LinkBudgetInput, link_budget_estimator
 from app.tools.memory_read import MemoryReadInput, memory_read
 from app.tools.parent_context import ParentContextInput, parent_context
 from app.tools.plan_generator import PlanGeneratorInput, plan_generator
@@ -86,6 +87,15 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         timeout_seconds=10.0,
         retry_count=0,
         scope="planning",
+    ),
+    "link_budget_estimator": ToolSpec(
+        name="link_budget_estimator",
+        description="Estimate wireless link budget using a deterministic free-space path loss model.",
+        input_model=LinkBudgetInput,
+        handler=link_budget_estimator,
+        timeout_seconds=5.0,
+        retry_count=0,
+        scope="mission",
     ),
     "drone_mission_parse": ToolSpec(
         name="drone_mission_parse",
