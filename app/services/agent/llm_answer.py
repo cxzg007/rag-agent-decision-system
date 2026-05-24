@@ -40,6 +40,7 @@ class LLMAnswerGenerator:
             ],
             fallback={"answer": fallback},
             temperature=0.1,
+            trace_id=state.trace_id,
         )
         answer = payload.get("answer")
         return answer if isinstance(answer, str) and answer.strip() else fallback

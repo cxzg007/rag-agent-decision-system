@@ -1,3 +1,4 @@
+import asyncio
 from typing import Literal
 
 from elasticsearch import AsyncElasticsearch
@@ -97,7 +98,7 @@ class HybridRetriever:
         return response["hits"]["hits"]
 
     async def _knn_search(self, query: str, k: int) -> list[dict]:
-        vector = embedding_service.embed(query)
+        vector = await asyncio.to_thread(embedding_service.embed, query)
         response = await self.client.search(
             index=self.index,
             size=k,

@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     llm_model: str = "gpt-4o-mini"
     llm_base_url: str = "https://api.openai.com/v1"
     llm_timeout_seconds: float = 30.0
+    llm_retry_count: int = 1
     openai_api_key: str | None = None
     dashscope_api_key: str | None = None
     embedding_provider: str = "sentence-transformers"
@@ -30,8 +31,13 @@ class Settings(BaseSettings):
     rerank_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
     rerank_batch_size: int = 16
     retrieval_candidate_multiplier: int = 8
+    rag_retrieval_timeout_seconds: float = 90.0
+    rag_retrieval_retry_count: int = 1
     knn_num_candidates_multiplier: int = 20
+    rerank_timeout_seconds: float = 60.0
+    rerank_retry_count: int = 0
     dependency_check_timeout_seconds: float = 2.0
+    slow_dependency_threshold_ms: float = 1000.0
     require_api_key: bool = False
     api_key: str | None = None
     max_question_length: int = 2000

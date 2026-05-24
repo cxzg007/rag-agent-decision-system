@@ -1,8 +1,8 @@
-import asyncio
 import time
 
 from app.schemas.chat import Citation, ToolCallRecord
 from app.core.security import security_context
+from app.services.dependency_caller import dependency_caller
 from app.services.mcp_client import mcp_client
 from app.services.agent.state import AgentState, PlanStep, RetrievalEventRecord
 from app.services.skill_registry import get_mcp_server_definition
@@ -21,7 +21,7 @@ class ToolExecutor:
 
         started = time.perf_counter()
         try:
-            output = await self._dispatch(step)
+            output = await self._dispatch(step, trace_id=state.trace_id)
             latency_ms = (time.perf_counter() - started) * 1000
             self._apply_output(state, step, output)
             self._capture_retrieval_event(state, step, output, latency_ms)
@@ -48,31 +48,38 @@ class ToolExecutor:
             )
             return None
 
-    async def _dispatch(self, step: PlanStep) -> object:
+    async def _dispatch(self, step: PlanStep, trace_id: str | None) -> object:
         if step.tool_name.startswith("mcp:"):
-            return await self._dispatch_mcp(step)
+            return await self._dispatch_mcp(step, trace_id=trace_id)
         spec = get_tool_spec(step.tool_name)
         context = security_context()
         if spec.scope not in context.allowed_tool_scopes:
             raise PermissionError(f"tool scope not allowed: {spec.scope}")
         payload = spec.input_model.model_validate(step.arguments)
-        attempts = spec.retry_count + 1
-        last_error: Exception | None = None
-        for attempt in range(1, attempts + 1):
-            try:
-                return await asyncio.wait_for(spec.handler(payload), timeout=spec.timeout_seconds)
-            except Exception as exc:
-                last_error = exc
-                if attempt >= attempts:
-                    break
-        raise RuntimeError(f"tool {step.tool_name} failed after {attempts} attempt(s): {last_error}") from last_error
+        return await dependency_caller.call(
+            name=step.tool_name,
+            dependency_type="tool",
+            func=lambda: spec.handler(payload),
+            timeout_seconds=spec.timeout_seconds,
+            retry_count=spec.retry_count,
+            trace_id=trace_id,
+            metadata={"step_id": step.step_id, "scope": spec.scope},
+        )
 
-    async def _dispatch_mcp(self, step: PlanStep) -> object:
+    async def _dispatch_mcp(self, step: PlanStep, trace_id: str | None) -> object:
         parts = step.tool_name.split(":", 2)
         if len(parts) != 3 or not parts[1] or not parts[2]:
             raise ValueError("MCP tool name must use mcp:<server_id>:<tool_name>")
         server = get_mcp_server_definition(parts[1])
-        return await mcp_client.call_tool(server, parts[2], step.arguments)
+        return await dependency_caller.call(
+            name=f"{server.server_id}.{parts[2]}",
+            dependency_type="mcp_tool",
+            func=lambda: mcp_client.call_tool(server, parts[2], step.arguments),
+            timeout_seconds=server.timeout_seconds,
+            retry_count=0,
+            trace_id=trace_id,
+            metadata={"step_id": step.step_id, "transport": server.transport},
+        )
 
     def _apply_output(self, state: AgentState, step: PlanStep, output: object) -> None:
         if step.tool_name == "knowledge_search":

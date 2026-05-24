@@ -1,22 +1,34 @@
 import hashlib
 import math
-from functools import cached_property
+from threading import Lock
 
 from app.core.config import settings
 
 
 class EmbeddingService:
-    @cached_property
+    def __init__(self) -> None:
+        self._model = None
+        self._model_loaded = False
+        self._model_lock = Lock()
+
+    @property
     def model(self):
         if settings.embedding_provider != "sentence-transformers":
             return None
-        try:
-            from sentence_transformers import SentenceTransformer
-        except ImportError as exc:
-            raise RuntimeError(
-                "Install sentence-transformers or set EMBEDDING_PROVIDER=mock."
-            ) from exc
-        return SentenceTransformer(settings.embedding_model)
+        if self._model_loaded:
+            return self._model
+        with self._model_lock:
+            if self._model_loaded:
+                return self._model
+            try:
+                from sentence_transformers import SentenceTransformer
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Install sentence-transformers or set EMBEDDING_PROVIDER=mock."
+                ) from exc
+            self._model = SentenceTransformer(settings.embedding_model)
+            self._model_loaded = True
+            return self._model
 
     def embed(self, text: str) -> list[float]:
         if settings.embedding_provider == "sentence-transformers":

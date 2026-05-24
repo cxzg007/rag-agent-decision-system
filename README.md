@@ -12,6 +12,7 @@
 - Supervisor Router、Deterministic Agent、LLM Planner、LLM Critic、LLM Answer Generator
 - 可配置 Workflow DAG，支持 Parallel / Merge 策略
 - Tool Registry 与 MCP 风格工具调用
+- 统一外部依赖调用器，为 LLM、RAG 检索、Rerank、Tool 提供 timeout / retry / fallback / structured logging
 - Skill Registry，将 RAG、业务规划、外部工具封装为可执行入口
 - PostgreSQL 持久化 trace、tool_calls、retrieval_events、workflow_runs
 - Redis 会话记忆与长期记忆
@@ -383,6 +384,7 @@ docker compose --profile api up -d --build
 - [Supervisor Workflow 设计](docs/supervisor_workflow_design.md)
 - [多 Agent Workflow 设计](docs/multi_agent_design.md)
 - [Skill / MCP 设计](docs/skill_mcp_design.md)
+- [外部依赖可观测与重试](docs/external_dependency_observability.md)
 - [安全设计](docs/security_design.md)
 - [生产化说明](docs/production_readiness.md)
 - [前端控制台说明](docs/frontend_console.md)

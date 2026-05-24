@@ -20,6 +20,7 @@
 - 有明确的状态对象 `AgentState`
 - 有可解释的 Planner / Executor / Reflector / Generator 分层
 - 有工具注册、参数校验、超时和重试
+- 有统一外部依赖调用器，覆盖 LLM、RAG 检索、Rerank 和工具执行
 - 有 RAG 检索、父子 chunk 上下文、短期记忆
 - 有 trace、tool_calls、retrieval_events 的持久化
 - 有可评测、可消融、可排障的运行闭环
@@ -53,6 +54,7 @@ flowchart TD
 | 生成 | `app/services/agent/generator.py` | 基于检索证据和父 chunk 上下文生成确定性答案 |
 | 编排 | `app/services/agent/orchestrator.py` | 串联 query rewrite、plan、execute、reflect、answer、memory、trace |
 | 工具注册 | `app/tools/registry.py` | 集中声明工具名、schema、handler、timeout、retry |
+| 外部依赖调用 | `app/services/dependency_caller.py` | 为 LLM、RAG 检索、Rerank、Tool/MCP 提供 timeout、retry、fallback、structured logging 和 trace_id 透传 |
 
 ## 4. AgentState 设计
 
@@ -90,7 +92,7 @@ ToolSpec(
 
 - 工具白名单清晰，避免 Planner 随便调用未知函数
 - 每个工具都有 Pydantic input schema，参数错误会在执行前暴露
-- timeout 和 retry 是工具级别配置，不同工具可以有不同策略
+- timeout 和 retry 由 `DependencyCaller` 统一执行，不同工具可以有不同策略
 - 后续接入 LLM Planner 时，可以直接把 registry 转成 tool schema
 - 面试时可以清楚解释 Agent 的工具调用不是 if-else 拼接，而是一个可扩展 runtime
 

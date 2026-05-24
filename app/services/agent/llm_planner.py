@@ -33,6 +33,7 @@ class LLMPlanner:
             ],
             fallback=fallback,
             temperature=0.0,
+            trace_id=state.trace_id,
         )
         task_type = self._safe_task_type(payload.get("task_type"), fallback_task_type)
         route = payload.get("route") or self._route_for_task(task_type)

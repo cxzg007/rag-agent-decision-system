@@ -4,6 +4,226 @@
 
 后续开发约定：每完成一个重要功能，都同步记录实现过程中遇到的关键问题、处理方式和面试可讲点，避免只留下代码而丢失工程决策过程。
 
+## 2026-05-23：统一外部依赖调用器
+
+### 背景
+
+项目已经接入 LLM、Elasticsearch、Rerank 模型、Tool Registry 和 MCP Tool。早期这些调用点各自处理 timeout、retry 或异常，有几个问题：
+
+- LLM、RAG、Rerank、Tool 的日志字段不一致
+- trace_id 不能稳定贯穿嵌套调用
+- 慢调用不容易定位
+- 失败依赖和工具异常需要到不同模块里排查
+- fallback 策略分散，面试时不容易讲清楚工程边界
+
+### 处理
+
+新增统一外部依赖调用器：
+
+```text
+app/services/dependency_caller.py
+```
+
+统一提供：
+
+```text
+timeout
+retry
+fallback
+structured logging
+trace_id 透传
+slow call 标记
+error_type / error_message 记录
+```
+
+接入位置：
+
+```text
+LLM: app/services/llm.py
+RAG retrieval: app/tools/knowledge_search.py
+Rerank: app/services/reranker.py
+Tool/MCP: app/services/agent/executor.py
+```
+
+新增文档：
+
+```text
+docs/external_dependency_observability.md
+```
+
+新增测试：
+
+```text
+tests/conftest.py
+tests/test_dependency_caller.py
+```
+
+### 重要问题 1：pytest 找不到 `app` 包
+
+现象：
+
+```text
+ModuleNotFoundError: No module named 'app'
+```
+
+原因：
+
+项目之前主要通过脚本直接运行，脚本里会手动把项目根目录加入 `sys.path`。新增 `tests/` 后，pytest 从测试目录收集文件时没有自动把项目根目录加入模块搜索路径。
+
+解决：
+
+新增 `tests/conftest.py`：
+
+```python
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+```
+
+面试可讲点：
+
+工程化项目不能只依赖“从某个目录手动运行脚本”的隐式路径。测试环境要显式固定 import root，否则 CI、本机和 IDE 的行为可能不一致。
+
+### 重要问题 2：同步 Rerank 模型不能只用 `asyncio.wait_for`
+
+现象：
+
+CrossEncoder 的 `predict()` 是同步阻塞调用。如果直接把同步函数包进 `asyncio.wait_for`，函数会先阻塞事件循环，timeout 不能真正中断模型预测。
+
+解决：
+
+Rerank 接入 `DependencyCaller` 时，使用：
+
+```python
+asyncio.to_thread(self._cross_encoder_rerank, ...)
+```
+
+这样同步模型预测在线程中执行，外层 timeout 才有实际意义。失败时 fallback 到原始候选 `top_k`，避免检索结果全部丢失。
+
+面试可讲点：
+
+不是所有 timeout 都真的有效。对同步阻塞依赖，需要放入线程池、进程池或独立服务，否则事件循环层面的 timeout 只能等阻塞结束后才生效。
+
+### 重要问题 3：并行 RAG 分支可能重复冷启动模型
+
+现象：
+
+验证 Supervisor 的 RAG 路径时，`retrieval_original` 和 `retrieval_rewritten` 并行执行。日志显示两个分支都可能同时触发 embedding / CrossEncoder 模型冷启动，导致 HuggingFace metadata 检查和模型加载日志重复出现。
+
+原因：
+
+Python 3.12 中 `functools.cached_property` 不再提供内部锁。并行分支首次访问模型属性时，可能同时进入加载逻辑，造成重复初始化。
+
+解决：
+
+将 `EmbeddingService.model` 和 `Reranker.model` 从 `cached_property` 改为显式锁保护：
+
+```text
+threading.Lock
+_model
+_model_loaded
+```
+
+同时把 embedding 查询和 CrossEncoder rerank 放入 `asyncio.to_thread()`，减少同步模型计算阻塞事件循环的问题。
+
+面试可讲点：
+
+并行 Workflow 不只是“更快”，也会放大冷启动和共享资源竞争问题。模型、连接池、缓存这类共享资源需要考虑并发初始化保护。
+
+### 重要处理 4：不同依赖使用不同 fallback
+
+本次没有用“一刀切返回 None”的 fallback，而是按依赖语义处理：
+
+```text
+LLM 失败       -> deterministic fallback JSON
+RAG 检索失败   -> 空候选，让上层进入证据不足路径
+Rerank 失败    -> 原始候选 top_k
+Tool 失败      -> tool_call 记录失败，由 Agent 降级
+```
+
+面试可讲点：
+
+fallback 不是隐藏错误，而是把错误控制在可解释边界内。不同依赖的 fallback 应该服务于业务语义，而不是统一吞异常。
+
+### 当前验证结论
+
+```powershell
+python -m compileall app scripts tests
+pytest tests\test_dependency_caller.py -q
+python scripts\preflight.py
+python scripts\smoke_api.py --strict-ready
+```
+
+结果：
+
+```text
+compileall passed
+2 dependency caller tests passed
+preflight passed，但 health=degraded
+smoke functional endpoints passed，strict-ready 因外部依赖不可用返回 503
+non-strict smoke passed
+RAG supervisor path returned 200
+```
+
+RAG 路径验证中，统一调用器成功打出：
+
+```text
+dependency_type=tool name=knowledge_search
+dependency_type=rag_retrieval name=retriever.search
+dependency_type=rerank name=reranker.cross_encoder
+trace_id=同一个 Agent trace
+slow=true 标记模型冷启动和检索慢调用
+```
+
+### 重要问题 5：Docker Desktop 未启动导致 strict-ready 失败
+
+现象：
+
+2026-05-24 推送前重新验证时：
+
+```text
+docker compose ps
+open //./pipe/dockerDesktopLinuxEngine: The system cannot find the file specified.
+
+python scripts\preflight.py
+health=degraded
+elasticsearch: down Connection timed out
+redis: down
+postgresql: down connection timeout expired
+
+python scripts\smoke_api.py --strict-ready
+GET /health/ready -> 503
+```
+
+同时，非外部依赖强相关的功能路径仍返回 200：
+
+```text
+GET /health/live -> 200
+GET /app/ -> 200
+GET /skills -> 200
+GET /workflows -> 200
+POST /skills/agent_supervisor/run direct -> 200
+POST /skills/agent_supervisor/run tool -> 200
+POST /skills/drone_mission_planner/run -> 200
+```
+
+原因：
+
+Docker Desktop 没有运行，本机没有 `dockerDesktopLinuxEngine` pipe，因此 Docker Compose 管理的 Elasticsearch、Redis、PostgreSQL 都不可达。`--strict-ready` 会要求所有外部依赖可用，所以返回 503 是符合预期的。
+
+处理：
+
+本次没有为了通过 strict-ready 修改健康检查语义，而是保留真实依赖状态：
+
+- 代码编译通过
+- `DependencyCaller` 单测通过
+- preflight 能明确报告 degraded 依赖
+- smoke 中核心 API 和不依赖 ES/Redis/PostgreSQL 的 Agent 路径通过
+
+面试可讲点：
+
+健康检查要真实反映依赖状态，不能为了测试通过把外部依赖失败隐藏掉。生产环境可以区分 liveness 和 readiness：进程活着不等于依赖可服务。
+
 ## 2026-05-23：将 Multi-Agent 修正为 Supervisor 路由驱动 Workflow
 
 ### 背景

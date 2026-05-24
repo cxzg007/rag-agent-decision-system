@@ -1,21 +1,35 @@
-from functools import cached_property
+import asyncio
+from threading import Lock
 
 from app.core.config import settings
 from app.schemas.chat import Citation
+from app.services.dependency_caller import dependency_caller
 
 
 class Reranker:
-    @cached_property
+    def __init__(self) -> None:
+        self._model = None
+        self._model_loaded = False
+        self._model_lock = Lock()
+
+    @property
     def model(self):
         if settings.rerank_provider != "sentence-transformers":
             return None
-        try:
-            from sentence_transformers import CrossEncoder
-        except ImportError as exc:
-            raise RuntimeError(
-                "Install sentence-transformers or set RERANK_PROVIDER=lexical."
-            ) from exc
-        return CrossEncoder(settings.rerank_model)
+        if self._model_loaded:
+            return self._model
+        with self._model_lock:
+            if self._model_loaded:
+                return self._model
+            try:
+                from sentence_transformers import CrossEncoder
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Install sentence-transformers or set RERANK_PROVIDER=lexical."
+                ) from exc
+            self._model = CrossEncoder(settings.rerank_model)
+            self._model_loaded = True
+            return self._model
 
     async def rerank(
         self,
@@ -24,9 +38,38 @@ class Reranker:
         top_k: int,
         use_metadata_adjustment: bool = True,
     ) -> list[Citation]:
+        fallback = candidates[:top_k]
         if settings.rerank_provider == "sentence-transformers":
-            return self._cross_encoder_rerank(query, candidates, top_k, use_metadata_adjustment)
-        return self._lexical_rerank(query, candidates, top_k)
+            return await dependency_caller.call(
+                name="reranker.cross_encoder",
+                dependency_type="rerank",
+                func=lambda: asyncio.to_thread(
+                    self._cross_encoder_rerank,
+                    query,
+                    candidates,
+                    top_k,
+                    use_metadata_adjustment,
+                ),
+                timeout_seconds=settings.rerank_timeout_seconds,
+                retry_count=settings.rerank_retry_count,
+                fallback=fallback,
+                metadata={
+                    "provider": settings.rerank_provider,
+                    "model": settings.rerank_model,
+                    "candidate_count": len(candidates),
+                    "top_k": top_k,
+                    "metadata_adjustment": use_metadata_adjustment,
+                },
+            )
+        return await dependency_caller.call(
+            name="reranker.lexical",
+            dependency_type="rerank",
+            func=lambda: asyncio.to_thread(self._lexical_rerank, query, candidates, top_k),
+            timeout_seconds=settings.rerank_timeout_seconds,
+            retry_count=settings.rerank_retry_count,
+            fallback=fallback,
+            metadata={"provider": settings.rerank_provider, "candidate_count": len(candidates), "top_k": top_k},
+        )
 
     def _cross_encoder_rerank(
         self,

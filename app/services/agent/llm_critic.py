@@ -31,6 +31,7 @@ class LLMCritic:
             ],
             fallback=fallback.model_dump(),
             temperature=0.0,
+            trace_id=state.trace_id,
         )
         return ReflectionResult(
             passed=bool(payload.get("passed", fallback.passed)),

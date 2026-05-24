@@ -6,6 +6,7 @@ import httpx
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.services.dependency_caller import dependency_caller
 
 logger = logging.getLogger(__name__)
 
@@ -28,20 +29,46 @@ class LLMClient:
         messages: list[LLMMessage],
         fallback: dict[str, Any],
         temperature: float = 0.0,
+        trace_id: str | None = None,
     ) -> dict[str, Any]:
-        response = await self.chat(messages, temperature=temperature)
+        fallback_response = LLMResponse(
+            content=json.dumps(fallback),
+            provider=settings.llm_provider,
+            model=settings.llm_model,
+        )
+        response = await self.chat(
+            messages,
+            temperature=temperature,
+            trace_id=trace_id,
+            fallback_response=fallback_response,
+        )
         try:
             return json.loads(self._strip_json_fence(response.content))
         except json.JSONDecodeError as exc:
             logger.warning("LLM returned non-JSON content, fallback used: %s", exc)
             return fallback
 
-    async def chat(self, messages: list[LLMMessage], temperature: float = 0.0) -> LLMResponse:
+    async def chat(
+        self,
+        messages: list[LLMMessage],
+        temperature: float = 0.0,
+        trace_id: str | None = None,
+        fallback_response: LLMResponse | None = None,
+    ) -> LLMResponse:
         provider = settings.llm_provider.lower()
         if provider == "mock":
             return self._mock_response(messages)
         if provider in {"openai", "openai-compatible"}:
-            return await self._openai_compatible_chat(messages, temperature=temperature)
+            return await dependency_caller.call(
+                name=f"{provider}.chat_completions",
+                dependency_type="llm",
+                func=lambda: self._openai_compatible_chat(messages, temperature=temperature),
+                timeout_seconds=settings.llm_timeout_seconds,
+                retry_count=settings.llm_retry_count,
+                fallback=fallback_response,
+                trace_id=trace_id,
+                metadata={"model": settings.llm_model, "message_count": len(messages)},
+            )
         logger.warning("unknown LLM_PROVIDER=%s, fallback to mock", settings.llm_provider)
         return self._mock_response(messages)
 
