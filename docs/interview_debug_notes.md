@@ -5575,3 +5575,40 @@ main...origin/main [ahead 1]
 ### 面试可讲点
 
 排查发布问题时要区分认证失败、权限失败和网络连通失败。这里 token 权限不是主要矛盾，因为错误发生在连接 GitHub 443 端口阶段；用 `Test-NetConnection` 可以快速确认是 TCP 连接不可达，而不是 Git 或代码问题。
+
+## 144. GitHub 443 连通性恢复后的处理
+
+### 现象
+
+前一次 `git push origin main` 因 GitHub 443 端口不可达失败。随后重新检查网络时，`curl.exe -I https://github.com --connect-timeout 10` 返回 HTTP 200，说明 HTTPS 连通性已经恢复。
+
+### 排查
+
+检查 Git、环境变量和 WinHTTP 代理：
+
+```text
+Git global proxy: empty
+Git local proxy: empty
+HTTP_PROXY / HTTPS_PROXY / ALL_PROXY: empty
+WinHTTP proxy: Direct access
+```
+
+这说明 Git 没有配置代理，当前是直连 GitHub。由于 `curl` 能访问 GitHub，问题更像短时网络抖动、链路恢复或之前 GitHub 连接路径临时不可达。
+
+### 处理
+
+在连通性恢复后重新执行：
+
+```powershell
+git push origin main
+```
+
+推送成功：
+
+```text
+6142d5b..af59c3e  main -> main
+```
+
+### 面试可讲点
+
+网络类发布故障不要只重复 push。先分层确认 DNS、ICMP、TCP 443、HTTP 请求和 Git 代理配置。确认 443 恢复后再重试 push，可以避免把网络问题误判成 GitHub token、仓库权限或代码问题。
