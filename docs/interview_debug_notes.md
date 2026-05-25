@@ -5521,3 +5521,57 @@ pytest tests\test_dependency_caller.py tests\test_agent_eval_metrics.py -q
 ### 面试可讲点
 
 项目展示不能只停留在本地实现，必须把可复现的评测代码、评测数据、报告和文档一起推送到远端仓库。这样面试官可以从 README 直接看到架构、指标和运行方式，也能从测试和报告判断实现不是口头设计。
+
+## 143. GitHub push 因 443 端口不可达失败
+
+### 现象
+
+本地已经成功提交：
+
+```text
+cc99179 Add agent evaluation metrics
+```
+
+执行推送：
+
+```powershell
+git push origin main
+```
+
+失败：
+
+```text
+Failed to connect to github.com port 443 after 21074 ms
+Could not connect to server
+```
+
+### 排查
+
+继续执行网络连通性检查：
+
+```powershell
+Test-NetConnection github.com -Port 443
+```
+
+结果显示：
+
+```text
+PingSucceeded: True
+TcpTestSucceeded: False
+```
+
+说明 DNS 和 ICMP 能到 GitHub，但 HTTPS/TCP 443 无法建立连接。该问题更像本机网络、代理、防火墙、VPN 或运营商链路问题，而不是 GitHub token、commit 或仓库权限问题。
+
+### 重要处理
+
+本地 Git 状态为：
+
+```text
+main...origin/main [ahead 1]
+```
+
+表示本地已经比 GitHub 多 1 个提交，只差网络恢复后再次执行 push。
+
+### 面试可讲点
+
+排查发布问题时要区分认证失败、权限失败和网络连通失败。这里 token 权限不是主要矛盾，因为错误发生在连接 GitHub 443 端口阶段；用 `Test-NetConnection` 可以快速确认是 TCP 连接不可达，而不是 Git 或代码问题。
