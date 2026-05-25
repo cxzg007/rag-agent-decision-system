@@ -19,6 +19,7 @@ class EvalRunRequest(BaseModel):
     configs: list[AblationConfig] = Field(default_factory=list)
     dataset_name: Literal["default", "large"] = "default"
     include_agent_eval: bool = True
+    agent_dataset_name: Literal["agent"] = "agent"
 
 
 class EvalDatasetCase(BaseModel):
@@ -59,6 +60,7 @@ class EvalRunResult(BaseModel):
 
 
 class AgentEvalCaseResult(BaseModel):
+    case_id: str | None = None
     question: str
     gold_chunk_ids: list[str]
     citation_chunk_ids: list[str]
@@ -68,6 +70,14 @@ class AgentEvalCaseResult(BaseModel):
     answer_keyword_coverage: float
     node_success_rate: float
     tool_success_rate: float
+    workflow_completion_rate: float = 0.0
+    plan_completeness: float = 0.0
+    constraint_pass_rate: float = 0.0
+    trace_coverage: float = 0.0
+    expected_nodes: list[str] = []
+    executed_nodes: list[str] = []
+    expected_tools: list[str] = []
+    executed_tools: list[str] = []
     latency_ms: float
     workflow_run_id: str | None = None
     trace_id: str | None = None

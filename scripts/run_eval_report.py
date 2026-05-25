@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.eval.metrics import EvalDependencyError, run_eval
+from app.eval.metrics import EvalDependencyError, load_agent_dataset, run_agent_eval, run_eval
 from app.schemas.eval import EvalResponse, EvalRunResult
 from app.services.retriever import retriever
 
@@ -149,13 +149,18 @@ def render_report(response: EvalResponse, elapsed_ms: float) -> str:
                 f"| AgentCitationHit@5 | {pct(named_metric(agent_run.metrics, 'AgentCitationHit@5'))} |",
                 f"| AnswerKeywordCoverage | {pct(named_metric(agent_run.metrics, 'AnswerKeywordCoverage'))} |",
                 f"| AgentNodeSuccessRate | {pct(named_metric(agent_run.metrics, 'AgentNodeSuccessRate'))} |",
+                f"| WorkflowCompletionRate | {pct(named_metric(agent_run.metrics, 'WorkflowCompletionRate'))} |",
                 f"| AgentToolSuccessRate | {pct(named_metric(agent_run.metrics, 'AgentToolSuccessRate'))} |",
+                f"| ToolSuccessRate | {pct(named_metric(agent_run.metrics, 'ToolSuccessRate'))} |",
+                f"| PlanCompleteness | {pct(named_metric(agent_run.metrics, 'PlanCompleteness'))} |",
+                f"| ConstraintPassRate | {pct(named_metric(agent_run.metrics, 'ConstraintPassRate'))} |",
+                f"| TraceCoverage | {pct(named_metric(agent_run.metrics, 'TraceCoverage'))} |",
                 f"| AgentAvgLatencyMs | {named_metric(agent_run.metrics, 'AgentAvgLatencyMs'):.2f} ms |",
                 "",
                 "### Agent Case Details",
                 "",
-                "| Citation Hit | Keyword Coverage | Node Success | Tool Success | Latency | Question | Citations | Matched Keywords |",
-                "|---:|---:|---:|---:|---:|---|---|---|",
+                "| Case | Workflow | Plan | Constraint | Trace | Tool | Latency | Question | Nodes | Tools | Matched Keywords |",
+                "|---|---:|---:|---:|---:|---:|---:|---|---|---|---|",
             ]
         )
         for case in agent_run.cases:
@@ -163,13 +168,16 @@ def render_report(response: EvalResponse, elapsed_ms: float) -> str:
                 "| "
                 + " | ".join(
                     [
-                        str(case.citation_hit),
-                        pct(case.answer_keyword_coverage),
-                        pct(case.node_success_rate),
+                        case.case_id or "",
+                        pct(case.workflow_completion_rate),
+                        pct(case.plan_completeness),
+                        pct(case.constraint_pass_rate),
+                        pct(case.trace_coverage),
                         pct(case.tool_success_rate),
                         f"{case.latency_ms:.2f} ms",
                         case.question.replace("|", "\\|"),
-                        ", ".join(case.citation_chunk_ids[:5]),
+                        ", ".join(case.executed_nodes),
+                        ", ".join(case.executed_tools),
                         ", ".join(case.matched_keywords),
                     ]
                 )
@@ -223,11 +231,32 @@ def render_failure_report(error: Exception, elapsed_ms: float) -> str:
     )
 
 
-async def run_report(output_path: Path, dataset_path: Path, include_agent_eval: bool) -> None:
+async def run_report(
+    output_path: Path,
+    dataset_path: Path,
+    agent_dataset_path: Path,
+    include_agent_eval: bool,
+    agent_only: bool = False,
+) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     try:
-        response = await run_eval(dataset_path=dataset_path, include_agent_eval=include_agent_eval)
+        if agent_only:
+            agent_rows = load_agent_dataset(agent_dataset_path)
+            agent_run = await run_agent_eval(agent_rows)
+            response = EvalResponse(
+                dataset_size=len(agent_rows),
+                metrics=[],
+                cases=[],
+                runs=[],
+                agent_runs=[agent_run],
+            )
+        else:
+            response = await run_eval(
+                dataset_path=dataset_path,
+                include_agent_eval=include_agent_eval,
+                agent_dataset_path=agent_dataset_path,
+            )
         elapsed_ms = (time.perf_counter() - started) * 1000
         report = render_report(response, elapsed_ms)
     except EvalDependencyError as exc:
@@ -244,9 +273,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run eval ablations and write a Markdown report.")
     parser.add_argument("--output", type=Path, default=Path("reports/eval_report.md"))
     parser.add_argument("--dataset", type=Path, default=Path("app/eval/dataset.jsonl"))
+    parser.add_argument("--agent-dataset", type=Path, default=Path("app/eval/agent_dataset.jsonl"))
+    parser.add_argument("--agent-only", action="store_true")
     parser.add_argument("--no-agent-eval", action="store_true")
     args = parser.parse_args()
-    asyncio.run(run_report(args.output, args.dataset, include_agent_eval=not args.no_agent_eval))
+    asyncio.run(
+        run_report(
+            args.output,
+            args.dataset,
+            args.agent_dataset,
+            include_agent_eval=not args.no_agent_eval,
+            agent_only=args.agent_only,
+        )
+    )
 
 
 if __name__ == "__main__":

@@ -1,7 +1,13 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.core.security import require_api_key
-from app.eval.metrics import EvalDependencyError, resolve_eval_dataset, run_eval, summarize_eval_dataset
+from app.eval.metrics import (
+    EvalDependencyError,
+    resolve_agent_eval_dataset,
+    resolve_eval_dataset,
+    run_eval,
+    summarize_eval_dataset,
+)
 from app.schemas.eval import EvalDatasetSummary, EvalResponse, EvalRunRequest
 
 router = APIRouter()
@@ -23,6 +29,7 @@ async def evaluate(request: EvalRunRequest | None = None) -> EvalResponse:
             dataset_path=resolve_eval_dataset(request.dataset_name),
             configs=request.configs if request.configs else None,
             include_agent_eval=request.include_agent_eval,
+            agent_dataset_path=resolve_agent_eval_dataset(request.agent_dataset_name),
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

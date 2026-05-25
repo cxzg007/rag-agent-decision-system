@@ -15,7 +15,11 @@ const METRIC_LABELS = {
   "AgentCitationHit@5": "Agent 引用命中率",
   AnswerKeywordCoverage: "答案关键词覆盖率",
   AgentNodeSuccessRate: "节点成功率",
+  WorkflowCompletionRate: "工作流完成率",
   AgentToolSuccessRate: "工具调用成功率",
+  PlanCompleteness: "任务计划完整性",
+  ConstraintPassRate: "约束校验通过率",
+  TraceCoverage: "Trace 覆盖率",
   AgentAvgLatencyMs: "平均延迟",
 };
 

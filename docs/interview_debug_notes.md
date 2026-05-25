@@ -4,6 +4,120 @@
 
 后续开发约定：每完成一个重要功能，都同步记录实现过程中遇到的关键问题、处理方式和面试可讲点，避免只留下代码而丢失工程决策过程。
 
+## 2026-05-24：补全 Agent 层评测指标
+
+### 背景
+
+之前评测更偏 RAG 检索链路，已经包含 Recall@5、MRR@10、CitationAccuracy 等指标。但无人机任务规划系统不能只看检索是否命中，还要看 Agent workflow 是否完整执行、工具是否成功、约束是否通过、trace 是否足够回放。
+
+### 处理
+
+新增独立 Agent 评测数据集：
+
+```text
+app/eval/agent_dataset.jsonl
+```
+
+新增/补全 Agent 层指标：
+
+```text
+ToolSuccessRate
+WorkflowCompletionRate
+PlanCompleteness
+ConstraintPassRate
+TraceCoverage
+```
+
+同时更新：
+
+```text
+app/eval/metrics.py
+app/schemas/eval.py
+scripts/run_eval_report.py
+app/api/eval.py
+app/static/app.js
+docs/agent_evaluation.md
+reports/agent_eval_report.md
+tests/test_agent_eval_metrics.py
+```
+
+报告脚本新增：
+
+```powershell
+python scripts/run_eval_report.py --agent-only --output reports/agent_eval_report.md
+```
+
+### 重要问题 1：无人机任务规划样本不适合混入 RAG 检索评测集
+
+现象：
+
+无人机任务规划样本没有 `gold_chunk_ids`，如果直接放入 `app/eval/dataset.jsonl`，会破坏 Recall@K、MRR、CitationAccuracy 等检索指标。
+
+解决：
+
+单独建立 `app/eval/agent_dataset.jsonl`，Agent 样本使用：
+
+```text
+expected_nodes
+expected_tools
+answer_keywords
+constraints
+workflow_id
+```
+
+面试可讲点：
+
+RAG 评测和 Agent 评测不是同一层问题。检索评测关注证据召回；Agent 评测关注任务链路是否可靠，应该拆开建数据集和指标。
+
+### 重要问题 2：PlanCompleteness 不应被答案关键词强绑定
+
+现象：
+
+最初 `PlanCompleteness` 参考了 `answer_keywords` 覆盖率，导致无人机任务的结构化计划已经完整生成，但因为 Markdown 中未显式出现某些关键词，计划完整性被低估。
+
+解决：
+
+将 `PlanCompleteness` 改为：
+
+```text
+expected node coverage
+expected tool coverage
+constraint pass rate
+```
+
+这样更符合无人机任务规划场景：任务是否完整，主要看规划节点、业务工具和安全约束是否闭环，而不是自然语言答案中是否出现某个词。
+
+面试可讲点：
+
+指标设计要贴合业务语义。Agent 评测不能照搬 RAG 的关键词覆盖率，否则会误判结构化任务规划能力。
+
+### 重要问题 3：当前本地依赖不可用会拉低 RAG 样例的 Agent 指标
+
+现象：
+
+当前 Docker Desktop 未启动，ES/Redis/PostgreSQL 不可用。运行 Agent-only 报告时，无人机和链路预算样例可完成；RAG 样例走 retrieval fallback，导致 citation 相关约束未完全通过。
+
+当前报告：
+
+```text
+AgentRunSuccessRate      100.00%
+WorkflowCompletionRate   100.00%
+ToolSuccessRate          100.00%
+PlanCompleteness          95.83%
+ConstraintPassRate        87.50%
+TraceCoverage            100.00%
+```
+
+新增轻量单元测试 `tests/test_agent_eval_metrics.py`，不用启动 ES/Redis/PostgreSQL，也能验证五个 Agent 指标在完整任务计划场景下计算为 100%。
+
+解决：
+
+保留真实依赖状态，不为了刷指标隐藏 ES 不可用问题。报告和文档中明确说明：启动 Docker 后重新运行可得到完整 RAG 样例结果。
+
+面试可讲点：
+
+Agent 评测结果会受任务类型和外部依赖状态影响，因此报告里要解释数据来源和运行环境。这样比只给一个漂亮数字更可信。
+
 ## 2026-05-23：统一外部依赖调用器
 
 ### 背景
@@ -5166,3 +5280,244 @@ gh auth refresh -h github.com -s repo
 ### 面试可讲点
 
 CI/CD 和发布流程中，“已登录”和“具备对应权限”是两件事。遇到 GitHub GraphQL 权限错误时，要检查 token scope，而不是只检查是否登录。
+## 137. rag_quic_stream 时延偏高与并行检索分支语义
+
+### 现象
+
+分析 Agent 评测报告时发现 `rag_quic_stream` 明显慢于 mission/tool 类任务。Trace 中出现：
+
+```text
+retrieval_original
+retrieval_rewritten
+merge_evidence
+critic
+retrieval_original
+retrieval_rewritten
+merge_evidence
+critic
+answer
+```
+
+### 排查
+
+查看 `app/services/workflow/nodes.py` 后确认，`retrieval_original` 与 `retrieval_rewritten` 都调用同一个 `knowledge_search` 工具，区别只在 query 来源：
+
+- `retrieval_original` 使用用户原始问题 `state.agent_state.question`
+- `retrieval_rewritten` 使用 `state.agent_state.rewritten_query`
+- 如果 Critic 生成了 `followup_queries`，下一轮两个分支都会优先使用第一个 follow-up query
+
+当前 `app/services/query_rewrite.py` 还是确定性占位实现：
+
+```python
+return question.strip()
+```
+
+因此首轮 `retrieval_original` 和 `retrieval_rewritten` 实际上检索的是同一句 query，只是保留了未来接入 LLM query rewrite / domain rewrite 的工作流扩展点。
+
+### 重要处理
+
+这个设计在架构上是合理的：并行分支让系统可以同时覆盖“用户原话召回”和“改写后的规范化问题召回”，再通过 `merge_evidence` 去重、加权和排序。但在当前未接入真正 query rewrite 的阶段，它会带来额外检索成本，收益暂时不明显。
+
+### 面试可讲点
+
+可以说明系统采用了 Router-driven Workflow Graph，而不是所有任务都走完整 Multi-Agent。RAG 路径中设计了 original/rewrite 双路召回，目的是提升专业术语、同义表达和规范查询的召回率；同时通过 trace 暴露每一路耗时和证据贡献。当前 query rewrite 仍是占位实现，因此评测中它主要体现架构可扩展性，后续可接 LLM rewrite、领域词典 rewrite 或 HyDE 类查询扩展。
+
+## 138. BM25、向量检索与 Workflow 并行分支的层次区别
+
+### 现象
+
+分析 `retrieval_original` / `retrieval_rewritten` 时，容易误以为它们分别对应 BM25 和向量检索。
+
+### 排查
+
+查看 `app/services/retriever.py` 后确认，这里有两层不同的“两路”：
+
+第一层是 Workflow 层：
+
+- `retrieval_original`：用原始 query 调用 `knowledge_search`
+- `retrieval_rewritten`：用改写 query 调用 `knowledge_search`
+
+第二层是 Retriever 层：
+
+- `mode="bm25"`：只执行 ES `match` 查询
+- `mode="vector"`：只执行 ES 原生 `knn` 查询
+- `mode="hybrid"`：同一个 query 同时执行 BM25 和向量 kNN，再用加权 RRF 融合
+
+当前 `knowledge_search` 默认参数是：
+
+```python
+retrieval_mode: Literal["bm25", "vector", "hybrid"] = "hybrid"
+use_rerank: bool = True
+```
+
+因此一次 `knowledge_search` 在默认情况下内部会先做 hybrid 召回，再做 rerank。
+
+### 重要处理
+
+BM25 由 Elasticsearch `match` 查询实现，查询字段是 `text`，并过滤 `chunk_level=child`。向量检索由 ES `dense_vector` + 原生 `knn` 实现，查询向量由 `sentence-transformers/all-MiniLM-L6-v2` 生成，维度为 384，同样过滤 child chunk。
+
+Hybrid 融合不是简单拼接，而是按 rank 做加权 RRF：
+
+```text
+BM25 权重:   0.45 / (60 + rank)
+Vector 权重: 0.55 / (60 + rank)
+```
+
+相同 `chunk_id` 会合并得分，最后按融合分排序。
+
+### 面试可讲点
+
+可以强调检索链路是“两层召回 + 重排”：Workflow 层通过 original/rewrite query 扩大问题表达覆盖；Retriever 层通过 BM25/vector hybrid 同时兼顾关键词精确匹配和语义相似；最后 CrossEncoder rerank 和元数据调权提升最终证据质量。这个结构比单纯向量检索更适合规范、手册、任务规划这类既有术语精确性又有语义表达变化的场景。
+## 139. GitHub 是否包含 Agent 体系评测改动的核对
+
+### 现象
+
+需要确认 GitHub 上是否已经更新 Agent 层评测能力，例如 `ToolSuccessRate`、`WorkflowCompletionRate`、`PlanCompleteness`、`ConstraintPassRate`、`TraceCoverage` 等指标。
+
+### 排查
+
+执行本地 Git 状态检查后发现：
+
+```text
+HEAD/main/origin/main: 6142d5b Add dependency caller observability
+```
+
+但 Agent 评测相关文件仍处于本地未提交状态：
+
+```text
+app/eval/agent_dataset.jsonl
+tests/test_agent_eval_metrics.py
+docs/agent_evaluation.md
+reports/agent_eval_report.md
+app/eval/metrics.py
+scripts/run_eval_report.py
+app/api/eval.py
+app/schemas/eval.py
+app/static/app.js
+README.md
+```
+
+尝试执行 `git fetch origin` 实时确认远端状态时，GitHub 连接失败：
+
+```text
+Failed to connect to github.com port 443
+```
+
+### 结论
+
+根据本地 Git 状态，Agent 体系评测还没有提交并推送到 GitHub。当前 GitHub 上最新可见提交仍应是依赖调用器可观测性相关提交，而不是 Agent 评测提交。
+
+### 重要处理
+
+后续需要先完成本地验证，再执行：
+
+```powershell
+git add ...
+git commit -m "Add agent evaluation metrics"
+git push origin main
+```
+
+由于本次 `fetch` 无法连接 GitHub，推送前需要再次确认网络和 GitHub token 状态。
+
+### 面试可讲点
+
+工程交付时要区分“本地已实现”和“远端已发布”。评测指标、报告和测试即使已经在本地完成，也必须通过 commit、push 和远端核对后，才能认为已经进入可展示版本。
+## 140. Multi-Agent 在项目中的实际落点
+
+### 现象
+
+需要确认项目中的 Multi-Agent 不是只停留在文档设计，而是具体体现在哪些代码和运行链路中。
+
+### 排查
+
+核心落点包括：
+
+- `config/workflows/supervisor_workflow_v1.json`：业务主入口 Workflow，定义 Supervisor、RAG、Tool、Mission Planning 等分支
+- `app/services/workflow/definition.py`：WorkflowDefinition / WorkflowNodeSpec / WorkflowEdgeSpec，支持可配置节点和边
+- `app/services/workflow/runtime.py`：WorkflowRuntime，负责节点调度、条件分支、并行分支、循环、trace 持久化
+- `app/services/workflow/nodes.py`：具体 Agent 节点实现，包括 router、retriever、critic、answerer、mission parser、mission planner 等
+- `app/services/agent/executor.py` 与 `app/tools/registry.py`：Agent 调用 Tool 的统一执行层
+
+### 重要处理
+
+项目中的 Multi-Agent 是 Router-driven Workflow Graph：
+
+```text
+supervisor_router
+  -> direct_answer
+  -> deterministic_tool
+  -> retrieval_original + retrieval_rewritten -> merge_evidence -> critic -> answer
+  -> mission_parse -> mission_context -> mission_route_plan -> mission_risk_review -> mission_export
+```
+
+其中每个 `node_type="agent"` 的节点可以看作一个 Agent 角色，每个节点都有结构化输入、输出、耗时、状态和 trace。
+
+### 面试可讲点
+
+不要把本项目讲成“多个 LLM 角色聊天”。更准确的说法是：系统采用 Supervisor 驱动的可配置 Multi-Agent Workflow Graph。不同 Agent 是工作流节点，不同 Tool 是节点内部能力。简单任务不会过度编排，复杂无人机任务才进入多阶段规划、上下文查询、航线生成、风险校验和审批导出链路。
+## 141. 默认评测集高分是否合理的分析
+
+### 现象
+
+默认评测报告显示：
+
+```text
+hybrid_rerank Recall@5 = 100.00%
+hybrid_rerank MRR@10  = 85.62% / 约 85.63%
+ToolSuccessRate       = 100.00%
+```
+
+Agent 报告中也出现工具调用成功率 100%。
+
+### 排查
+
+默认 RAG 评测集 `app/eval/dataset.jsonl` 只有 16 条，问题集中在 RFC 8446、RFC 9000、RFC 9110 三份文档，且问题大多直接包含文档术语，例如 `QUIC streams`、`HTTP Content-Type`、`TLS KeyUpdate`。gold chunk 也来自同一批已入库 chunk。
+
+更大规模的 `app/eval/dataset_large.jsonl` 有 60 条，指标下降为：
+
+```text
+hybrid_rerank_metadata Recall@5 = 91.67%
+hybrid_rerank_metadata MRR@10  = 75.69%
+```
+
+说明默认集的 100% Recall 更像小样本、同源数据、术语匹配较强条件下的结果，而不是泛化能力上限。
+
+Agent 评测集目前只有 4 条，且任务多为 deterministic workflow / deterministic tool。工具调用成功率 100% 表示工具没有异常返回或被权限拒绝，不代表每个业务结果都完全正确。RAG Agent 样例在 Docker/ES 不可用时仍可能因为 fallback 被记为工具调用成功，但 citation/constraint 指标会下降。
+
+### 结论
+
+默认评测结果作为开发阶段 smoke / regression 指标是合理的，可以说明 pipeline 跑通、hybrid + rerank 在小样本上有效。但作为面试或项目展示，需要主动说明局限：样本量小、同源、问题较直接、Agent case 数量不足、ToolSuccessRate 不等于任务质量。
+
+### 面试可讲点
+
+不要只说“Recall 100%”。更好的表述是：默认集用于验证检索链路正确性，所以高分符合预期；为了避免指标虚高，项目又扩展了 60 条 large eval，并单独设计 Agent 层指标，如 WorkflowCompletionRate、PlanCompleteness、ConstraintPassRate、TraceCoverage。这样能同时评估检索质量和任务规划链路可靠性。
+## 142. 发布 Agent 评测与排障记录到 GitHub
+
+### 现象
+
+Agent 体系评测、报告和相关文档已经在本地完成，但尚未提交和推送到 GitHub。
+
+### 处理规划
+
+本次发布范围包括：
+
+- Agent 评测集与指标实现
+- Agent 评测报告生成脚本增强
+- 前端评测指标展示标签
+- README 与 Agent 评测说明文档
+- 排障记录和面试可讲点
+
+### 重要处理
+
+发布前需要执行轻量验证：
+
+```powershell
+python -m compileall app scripts tests
+pytest tests\test_dependency_caller.py tests\test_agent_eval_metrics.py -q
+```
+
+如果验证通过，再执行 `git add`、`git commit` 和 `git push origin main`。由于当前项目是面试展示项目，优先保证远端 README、报告和评测代码保持一致。
+
+### 面试可讲点
+
+项目展示不能只停留在本地实现，必须把可复现的评测代码、评测数据、报告和文档一起推送到远端仓库。这样面试官可以从 README 直接看到架构、指标和运行方式，也能从测试和报告判断实现不是口头设计。

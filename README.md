@@ -189,7 +189,7 @@ app/eval/dataset_large.jsonl  60 cases
 - Hybrid no rerank
 - Hybrid + rerank
 - Hybrid + rerank + metadata adjustment
-- Agent workflow evaluation
+- Agent workflow evaluation，包括 ToolSuccessRate、WorkflowCompletionRate、PlanCompleteness、ConstraintPassRate、TraceCoverage
 
 默认评测集上的已有结果：
 
@@ -342,6 +342,12 @@ python scripts/run_eval_report.py --dataset app/eval/dataset_large.jsonl --outpu
 python scripts/run_eval_report.py --dataset app/eval/dataset_large.jsonl --output reports/eval_report_large_retrieval.md --no-agent-eval
 ```
 
+仅运行 Agent 业务链路评测：
+
+```powershell
+python scripts/run_eval_report.py --agent-only --output reports/agent_eval_report.md
+```
+
 查看数据集摘要：
 
 ```text
@@ -385,6 +391,7 @@ docker compose --profile api up -d --build
 - [多 Agent Workflow 设计](docs/multi_agent_design.md)
 - [Skill / MCP 设计](docs/skill_mcp_design.md)
 - [外部依赖可观测与重试](docs/external_dependency_observability.md)
+- [Agent 评测设计](docs/agent_evaluation.md)
 - [安全设计](docs/security_design.md)
 - [生产化说明](docs/production_readiness.md)
 - [前端控制台说明](docs/frontend_console.md)
